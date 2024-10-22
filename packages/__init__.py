@@ -804,7 +804,7 @@ def cmd_sideload(paths: Iterable[str], arch: Optional[Arch] = None, no_build: bo
         '-U',
     ] + [os.path.join('/tmp', os.path.basename(file)) for file in files] + [
         '--noconfirm',
-        '--overwrite=\*',
+        '--overwrite=*',
     ],
                     alloc_tty=True).check_returncode()
 
