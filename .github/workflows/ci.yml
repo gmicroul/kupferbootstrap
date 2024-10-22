@@ -1,0 +1,117 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - dev
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+
+      - name: Install dependencies for formatting
+        run: |
+          pip install yapf autoflake
+
+      - name: Check formatting
+        run: ./format.sh --check
+
+      - name: Install dependencies for type checking
+        run: |
+          pip install mypy
+
+      - name: Type check
+        run: ./typecheck.sh --non-interactive --junit-xml mypy-report.xml
+
+      - name: Upload type check report
+        uses: actions/upload-artifact@v2
+        with:
+          name: mypy-report
+          path: mypy-report.xml
+
+  build_docker:
+    runs-on: ubuntu-latest
+    needs: check
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Log in to Docker Registry
+        run: echo "${{ secrets.CI_REGISTRY_PASSWORD }}" | docker login -u "${{ secrets.CI_REGISTRY_USER }}" --password-stdin "${{ secrets.CI_REGISTRY }}"
+
+      - name: Build Docker image
+        run: |
+          docker build --pull -t "${{ secrets.CI_REGISTRY_IMAGE }}:${{ github.sha }}" -t "${{ secrets.CI_REGISTRY_IMAGE }}:${{ github.ref_name }}" .
+
+      - name: Tag Docker image if on main branch
+        if: github.ref == 'refs/heads/main'
+        run: |
+          docker tag "${{ secrets.CI_REGISTRY_IMAGE }}:${{ github.sha }}" "${{ secrets.CI_REGISTRY_IMAGE }}:latest"
+
+      - name: Push Docker images
+        run: docker push -a "${{ secrets.CI_REGISTRY_IMAGE }}"
+
+  build_docs:
+    runs-on: ubuntu-latest
+    needs: check
+    if: github.ref != 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+
+      - name: Install documentation dependencies
+        run: pip install -r docs/requirements.txt
+
+      - name: Build documentation
+        run: |
+          cd docs
+          make
+          mv html ../public
+
+      - name: Upload documentation
+        uses: actions/upload-artifact@v2
+        with:
+          name: documentation
+          path: public
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build_docs
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+
+      - name: Install documentation dependencies
+        run: pip install -r docs/requirements.txt
+
+      - name: Build documentation
+        run: |
+          cd docs
+          make
+          mv html ../public
+
+      - name: Deploy documentation
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./public
